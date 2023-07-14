@@ -1,0 +1,732 @@
+<!-- 
+TODO
+Buttons to control view, fit, 
+Better pan control 
+generate eye points
+set view to row and eye with slider control
+analyse views for c value and a value
+fix no corners
+geometry at vomitories
+seats behind super riser check layouts
+freeze controls not in use depending on bowl type
+document use for web page
+-->
+<html>
+	<head>
+		<title>online seating bowl modeller</title>
+		<style>
+		body {
+				color: 	#537C7C;
+				font-family:Monospace;
+				font-size:13px;
+				text-align:left;
+				font-weight: bold;
+
+				background-color: #000000;
+				margin: 0px;
+				overflow: hidden;
+			}
+			#info {
+				color: #404040;
+				
+				position: fixed;
+    			bottom: 0;
+    			width: 100%;
+				padding: 5px;
+				z-index:100;
+			}
+			#buttons {
+				font-size:10px;
+				position:absolute;
+				top: 0px;
+				
+				z-index:100;
+			}
+			button{
+				top:0px; 
+				font-size:10px;
+				text-align:left;
+				height:20; 
+			}
+			#output {
+				color: #202020;
+				position: fixed;
+    			bottom: 55;
+    			width: 100%;
+				padding: 5px;
+				z-index:100;
+			}
+			ul {
+		    float: left;
+		    width: 100%;
+		    padding: 0;
+		    margin :0;
+		    list-style-type: none;
+			}
+
+		</style>
+	</head>
+	<body>
+		
+		<div id="container"></div>
+		<div id="buttons">
+		
+		</div>	
+		
+		<div id="output"></div>
+		
+		<div id="info">
+			Made by <a href="http://rolson.org">rolson</a> using <a href="http://threejs.org">three.js</a> adjust parameters or click reload to generate a new random bowl. Blank screen? <a href="http://caniuse.com/#feat=webgl"> Check your browser</a> for compatibility.<br>
+			Use google+ to login and download 3d data.<br>
+			<span
+				  id="login"
+				  class="g-signin"
+				  data-height="short"
+				  data-callback="loginToGoogle"
+				  data-cookiepolicy="single_host_origin"
+				  data-requestvisibleactions="http://schemas.google.com/AddActivity"
+				  data-scope="https://www.googleapis.com/auth/plus.login">
+				</span>
+		</div>
+		<script src="three.min.js"></script>
+		<script type="text/javascript" src="dat.gui.js"></script>
+		<script type="text/javascript" src="bowlFns.js"></script>
+		<script type="text/javascript" src="OrbitControls.js"></script>
+		<script type="text/javascript" src="stats.min.js"></script>
+		<script type="text/javascript" src="jquery-2.1.1.min.js"></script>
+		<script type="text/javascript" src="dxfFns.js"></script>
+		<script type="text/javascript" src="writeDownload.js"></script>
+		<script type="text/javascript" src="ifcCreate.js"></script>
+		<script type="text/javascript" src="THREEx.WindowResize.js"></script>
+
+		<!-- load fonts -->
+
+<script src="fonts/helvetiker_bold.typeface.js"></script>
+<script src="fonts/helvetiker_regular.typeface.js"></script>
+
+
+		<script src="https://sdk.amazonaws.com/js/aws-sdk-2.0.0-rc13.min.js"></script>
+		
+		<script type="text/javascript">
+
+	//first set up the google+ login
+    var s3 = null;
+    var clientID = '236971419206-m96f7t0f2opdlldcuej1q3lhamfoijos.apps.googleusercontent.com'; // Google client ID for bowlAPP
+    var roleArn = 'arn:aws:iam::164771145724:role/googlelogin2';//IAM role googlelogin2
+	var loggedIn =false;
+    document.getElementById('login').setAttribute('data-clientid', clientID);
+    function loginToGoogle(response) {
+        if (!response.error) {
+            bucket.config.credentials = new AWS.WebIdentityCredentials({
+            ProviderId: null,
+            RoleArn: roleArn,
+            WebIdentityToken: response.id_token
+            });
+        console.log('You are now logged in.');
+        loggedIn =true;
+        } else {
+        console.log('There was a problem logging you in.');
+        }
+    }
+
+  (function() {
+    var po = document.createElement('script'); po.type = 'text/javascript'; po.async = true;
+    po.src = 'https://apis.google.com/js/client:plusone.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(po, s);
+  })();
+        var bucketName = 'rolyhudsonb';
+        var bucket = new AWS.S3({params: {Bucket: bucketName}});
+// global variables
+
+var container, scene, camera, renderer, controls,stats;
+//interface and params
+var tierParams,genParams,bowlParams,gui;
+var bParams = [];
+var theBowl;
+var combinedPlanes;
+var prevTier;
+// custom global variables
+var gridline=[];
+var basesectionline=[];
+var spectatoreyes=[];
+var sightline=[];
+var mesh=[];
+var textLevels=[];
+var playingSurface;
+var plane;
+var dxfString;
+var noCornersectionRefs =[0,0,0,0];
+var sectionOnly = false;
+var showSightlines = false;
+var btnwidth;
+var lastSightLine;
+init();
+animate();
+
+//functions
+function init() 
+{
+	// SCENE
+	scene = new THREE.Scene();
+	// CAMERA
+	camera = new THREE.PerspectiveCamera(15, window.innerWidth/window.innerHeight, 0.1, 1000);//field of view , aspect ratio, near clip , far clip
+	scene.add(camera);
+	//set a top view for reset controls
+	camera.position.set(0,800,00);
+	camera.lookAt(scene.position);
+        // RENDERER
+	renderer = new THREE.WebGLRenderer( {antialias:true} );
+	renderer.setClearColor(0xEEEEEE, 1.0);
+	renderer.setSize( window.innerWidth, window.innerHeight );
+
+	THREEx.WindowResize(renderer, camera);
+
+	var container = document.getElementById( 'container' );
+	container.appendChild( renderer.domElement );
+	// CONTROLS
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+	// STATS
+	camera.position.set(-300,350,-200);
+	camera.lookAt(scene.position);
+	stats = new Stats();
+	btnwidth = stats.domElement.style.width;
+	var buttons = document.getElementById( 'buttons' );                          // Append the text to <button>
+	buttons.appendChild( stats.domElement );
+	var ul=document.createElement('ul');
+	buttons.appendChild(ul);
+	
+	addAllButtons(ul);
+	// LIGHTS
+        var ambientLight = new THREE.AmbientLight(0x0c0c0c);
+        scene.add(ambientLight);
+
+        // add spotlight for the shadows
+        var spotLight = new THREE.SpotLight( 0xffffff );
+        spotLight.position.set( 0,1000, 1500);
+        spotLight.castShadow = true;
+        scene.add( spotLight );
+
+    //
+	initPStore();
+	setTierParams(0);
+	tierParams.tierEdit=1;
+	
+
+	outParams = new function(){
+		this.writeDXF = function writeDXFFn() 
+		{
+			//dxfString = dxfStringBuilderTest();
+			
+			var d = new Date();
+    		var dxfName = d.getTime()+".dxf";
+    		if(loggedIn){
+    		alert("Your dxf file:" + dxfName+ " is being created. A link to download will appear at the bottom of the page in a few seconds");
+    		var dxfData=dxfFrom3jsMesh(mesh,dxfName);
+			postAWS(dxfData,dxfName,bucketName);
+    		}
+    		else{
+    			alert("You need to login to download 3d data");
+    		}
+			
+		}; 
+		this.writeIFC = function writeDXFFn() 
+		{
+			var d = new Date();
+    		var ifcName = d.getTime()+".ifc";
+    		if(loggedIn){
+    			alert("Your ifc file:" + ifcName+ " is being created. A link to download will appear at the bottom of the page in a few seconds");
+			var ifcData=writeIFCFacetBrep(theBowl,bowlParams.bowlType,noCornersectionRefs,bowlParams,combinedPlanes);
+    		postAWS(ifcData,ifcName,bucketName);
+    		}
+    		else
+    		{
+    			alert("You need to login to download 3d data");
+    		}
+		};
+	}
+	
+
+    genParams = new function(){
+        	this.playWidth = 60;
+        	this.playLength = 100;
+        	this.eyeLevel = 1.2;
+        	this.eyeHoriz = 0.15;
+        	this.seatWidth = 0.4;
+        	this.boardHeight=1;
+        }
+    bowlParams = new function(){
+        	this.structBayW = 7.5;
+	        this.cornerR =4;
+	        this.sideBound=5;
+	        this.endBound=5;
+	        this.sideRadius=500;
+	        this.endRadius = 400;
+	        this.radius = 60;
+	        this.nCornerBays=5;
+	        this.bowlType='radial';// 1 = radial, 2 =ortho, 3 = no corners, 4 = circular
+        
+        }
+	gui = new dat.GUI();
+	gui.add(outParams, 'writeDXF');
+	gui.add(outParams, 'writeDXF');
+	gui.add(outParams, 'writeIFC');
+
+	var f1 = gui.addFolder('general');
+		f1.add(genParams, 'playWidth');
+		f1.add(genParams, 'playLength');
+		f1.add(genParams, 'eyeLevel');
+		f1.add(genParams, 'eyeHoriz');
+		f1.add(genParams, 'seatWidth');
+		f1.add(genParams, 'boardHeight',0,2);
+
+	var f2 = gui.addFolder('bowlParameters');
+		f2.add(bowlParams, 'structBayW');
+		f2.add(bowlParams, 'cornerR');
+		f2.add(bowlParams, 'sideBound');
+		f2.add(bowlParams, 'endBound');
+		f2.add(bowlParams, 'sideRadius');
+		f2.add(bowlParams, 'endRadius');
+		f2.add(bowlParams, 'radius');
+		f2.add(bowlParams, 'nCornerBays',1,15).step(2);
+		
+		f2.add(bowlParams, 'bowlType',[ 'radial', 'ortho', 'no corners','circular' ]);
+
+	var f3 = gui.addFolder('tierParameters');
+		
+		f3.add(tierParams, 'startX',-5,20);
+        f3.add(tierParams, 'startZ',0,20);
+        f3.add(tierParams, 'C',0,0.3);
+        f3.add(tierParams,'nrows',3,50).step(1);
+        
+        f3.add(tierParams,'rowWidth',0.5,1.5);
+        f3.add(tierParams,'superRiser');
+        f3.add(tierParams,'superStart',3,50).step(1);
+        f3.add(tierParams,'vomitory');
+        f3.add(tierParams,'vomitoryStart',3,50).step(1);
+        f3.add(tierParams,'nTiers',1,5).step(1);
+        f3.add(tierParams,'tierEdit',1,5).step(1);
+        f3.open();
+
+//set gui events 
+	for (var i in f1.__controllers) 
+	{
+		
+		f1.__controllers[i].onFinishChange(function(value){
+		updateBowl();
+		});
+	}
+	for (var i in f2.__controllers) 
+	{
+		
+		f2.__controllers[i].onFinishChange(function(value){
+		updateBowl();
+		});
+	}
+	for (var i in f3.__controllers) 
+	{
+		if(i<10)//no update when changing tier edit param
+		f3.__controllers[i].onFinishChange(function(value){
+		updatePStore(tierParams.tierEdit-1);
+		f3.__controllers[i].updateDisplay();
+		updateBowl();
+		});
+	}
+
+	f3.__controllers[10].onFinishChange(function(value) {
+	  // Fires when a controller changed to edit another tier.
+
+	  updateTierParams(value-1);
+	   for (var i in f3.__controllers) 
+	   {
+	    f3.__controllers[i].updateDisplay();
+	    updateBowl();
+	   }
+	});
+	updateBowl();
+}
+function addAllButtons(element)
+{
+	addButton('top', topView,'top',element);
+	addButton('section', sectionView,'section',element);
+	addButton('fit', fitView,'fit',element);
+	addButton('showSightlines', showsight,'show',element);
+}
+function addButton(name, action, id,list )
+{
+	var li=document.createElement('li');
+
+    list.appendChild(li);
+    var btn = document.createElement("BUTTON");        // Create a <button> element
+	var t = document.createTextNode(name);       // Create a text node
+	btn.appendChild(t);
+	btn.style.width = btnwidth;   
+	btn.id = id;
+	btn.onclick = action;
+	                        
+	li.appendChild(btn);
+    
+
+}
+function fitView()
+{
+scene.computeBoundingSphere;
+camera.position.set(-300,350,-200);
+camera.lookAt(scene.position);
+}
+function showsight()
+{
+	var elem = document.getElementById('show');
+	if (showSightlines)
+	{showSightlines = false;elem.innerHTML="showSightlines";}
+	else
+	{showSightlines = true;elem.innerHTML="hideSightlines";}
+	updateBowl();
+	
+
+}
+function topView()
+{
+sectionOnly=false;
+updateBowl();
+controls.reset();
+
+}
+function sectionView()
+{
+	var elem = document.getElementById('section');
+	if(elem.innerHTML=="section")
+	{
+	sectionOnly=true;
+	elem.innerHTML="3dview";
+	}
+	else
+	{
+	sectionOnly=false;
+	elem.innerHTML="section"
+	controls.reset();
+	camera.position.set(-300,350,-200);
+	camera.lookAt(scene.position);
+	}
+	updateBowl();
+
+
+}
+function fitsection()
+{
+	controls.reset();
+	var dist = lastSightLine.geometry.boundingSphere.radius/Math.tan(7.5*Math.PI/180);
+camera.position.set(lastSightLine.geometry.boundingSphere.center.x,dist*0.8,-lastSightLine.geometry.boundingSphere.center.z);
+controls.target = new THREE.Vector3(lastSightLine.geometry.boundingSphere.center.x,0,-lastSightLine.geometry.boundingSphere.center.z);
+}
+
+function pushTextToPHPwrite(phpName,dxfName,dxfString,mode){//mode is a to append or w to write new or over write
+	$.post(phpName, // location of your php script $.post('/url/to/page', {'someKeyName': ['value','value']});
+    
+    		{ 'filename': dxfName,'dxfdata' : dxfString, 'mode': mode}, // any data you want to send to the script
+    		function( data )
+    		{ 
+    		//alert(data);// a function to deal with the returned information
+			});
+}
+function updateTierParams(currentTier)//called when changing edit tier
+{
+           tierParams.startX=bParams[currentTier][0];
+           tierParams.startZ =bParams[currentTier][1];
+           tierParams.C=bParams[currentTier][2]; 
+           tierParams.nrows =bParams[currentTier][3];
+           tierParams.rowWidth=bParams[currentTier][4];
+           tierParams.superRiser = bParams[currentTier][5];
+           tierParams.superStart = bParams[currentTier][6];
+           tierParams.vomitory = bParams[currentTier][7];
+           tierParams.vomitoryStart = bParams[currentTier][8];
+}	
+function setTierParams(currentTier)
+{
+		tierParams = new function() {
+            this.startX = bParams[currentTier][0];
+            this.startZ = bParams[currentTier][1];
+            this.C = bParams[currentTier][2];
+            this.nrows = bParams[currentTier][3];
+            this.rowWidth=bParams[currentTier][4];
+            this.superRiser = bParams[currentTier][5];
+            this.superStart = bParams[currentTier][6];
+            this.vomitory = bParams[currentTier][7];
+			this.vomitoryStart = bParams[currentTier][8];
+            this.nTiers=Math.floor((Math.random() * 5) + 1);
+            
+        }
+}		
+function initPStore()
+{
+	//add or remove
+	for(var i=0;i<6;i++)
+	{
+		bParams[i] = [];
+		bParams[i][0]= Math.floor((Math.random() * 6) + 2);//startx
+		bParams[i][1]= Math.floor((Math.random() * 4));//startz
+		bParams[i][2]= 0.09;//
+		bParams[i][3]= Math.floor((Math.random() * 30) + 10);//rows
+		bParams[i][4]= 0.8;//rowWidth;
+		if(Math.random()>0.6){bParams[i][5]=true;}//super riser
+		else {bParams[i][5]=false;}
+		
+		bParams[i][6]=4;//super start
+		if(bParams[i][5]==false){bParams[i][7]=true;}
+		else{bParams[i][7]=false;}//vomitory
+		bParams[i][8]=5;//vomitory start row
+	}
+}	
+
+function updatePStore(currentTier)
+{
+	//add or remove
+	for(var i=0;i<tierParams.nTiers;i++)
+	{
+
+		bParams[currentTier][0]= tierParams.startX;//startx
+		bParams[currentTier][1]= tierParams.startZ;//startz
+		bParams[currentTier][2]= tierParams.C;//c
+		bParams[currentTier][3]= tierParams.nrows;
+		bParams[currentTier][4]= tierParams.rowWidth;
+		bParams[currentTier][5]= tierParams.superRiser;
+		bParams[currentTier][6]= tierParams.superStart;
+		bParams[currentTier][7]= tierParams.vomitory;
+		bParams[currentTier][8]= tierParams.vomitoryStart;
+	}
+}
+
+function setNocornerRefs(combinedPlanes)
+{
+	var current = new THREE.Vector3();
+	var next = new THREE.Vector3();
+	var angle=0;
+	var refInd = 0;
+	noCornersectionRefs[refInd] =0;
+	refInd++;
+	for(var i=0;i<combinedPlanes.length;i++)
+	{
+		current = new THREE.Vector3(combinedPlanes[i].xDir.x,combinedPlanes[i].xDir.y,0);
+		if(i==combinedPlanes.length-1)
+		{
+		next = new THREE.Vector3(combinedPlanes[0].xDir.x,combinedPlanes[0].xDir.y,0);
+		}
+		else
+		{
+		next = new THREE.Vector3(combinedPlanes[i+1].xDir.x,combinedPlanes[i+1].xDir.y,0);
+		}
+		angle = current.angleTo(next);
+		if(angle>0)
+		{
+			noCornersectionRefs[refInd] =i;
+			refInd++;
+			noCornersectionRefs[refInd] =i+2;
+			refInd++;
+			i++;
+		}
+	}
+    
+}
+function updateBowl(){
+	//intial points test
+	//setpoints(tierParams.startX,tierParams.startZ,tierParams.C,tierParams.nrows,genParams.boardHeight,tierParams.rowWidth);
+	removefromscene(mesh);//perhaps to remove only if update needed
+	if(playingSurface)
+	{scene.remove( playingSurface);}
+	removefromscene(gridline);
+	var sectionPlane = setSectionPlaneLocations(bowlParams.bowlType,genParams.playWidth,genParams.playLength,bowlParams.sideBound,bowlParams.sideRadius,bowlParams.endBound,bowlParams.endRadius,bowlParams.cornerR,bowlParams.nCornerBays,bowlParams.structBayW,bowlParams.radius);
+	
+	var vomPlanes = setVomitoryPlaneLocations(sectionPlane);
+	combinedPlanes = combinePlanes(sectionPlane,vomPlanes);
+	if(bowlParams.bowlType=='no corners') {setNocornerRefs(combinedPlanes)};
+	//find worst case section the vomitory planes are perpendicular cuts through the bowl the rakers are at angles(in corners radial and circular bowls)
+	var smallBound = worstCaseSection(vomPlanes,genParams.playWidth,genParams.playLength);
+	var theSection = baseSection(tierParams.nTiers,bParams,genParams.eyeLevel,genParams.eyeHoriz,genParams.boardHeight,0.15,1.2,1.2,smallBound[0]);//numeric params are superNib,superEyeHoriz,superEyeVert)
+	//map this section at the vomitory plane closest to the playing area
+	mappedSection = mapBaseSectionToClosestPlane(theSection,vomPlanes, smallBound);
+	theBowl = new bowl(tierParams.nTiers,sectionPlane.length,bParams);
+	transformBaseSectionToBowl(theBowl,combinedPlanes,theSection,bowlParams.bowlType,smallBound);
+	
+if(sectionOnly)
+{
+drawBaseSection(theSection,tierParams.nTiers,'inplan',showSightlines);
+fitsection();
+}
+else//draw everything
+{
+	drawBaseSection(mappedSection,tierParams.nTiers,'inbowlPos',showSightlines);
+	drawGridLines(combinedPlanes);
+	//drawAllSections(theBowl);
+	meshDrawVomitory(theBowl,bowlParams.bowlType,noCornersectionRefs,bParams,noCornersectionRefs);
+	addPitch(genParams.playLength,genParams.playWidth);
+}
+	getSeatCount(theBowl,bowlParams.bowlType,noCornersectionRefs,genParams.seatWidth);
+	
+}
+
+function addPitch(length, width){
+	if(playingSurface)
+	{scene.remove( playingSurface);}
+	var geometry = new THREE.PlaneGeometry( width,length );
+	var material = new THREE.MeshBasicMaterial( {color: 0x32CD32, side: THREE.DoubleSide} );
+	playingSurface = new THREE.Mesh( geometry, material );
+	playingSurface.rotation.x=Math.PI/2;
+	scene.add( playingSurface );
+
+	//remember distance between pitch edge and the first part of the tier is calculated using the eyepoint as the set out and the sidebound
+	//we first set the plane of each section based on the pitch dimensions and the side end boundarys. This point can be seen by the end of the dotted grid lines. The first eye point relative to this point is defined with startX and startZ
+}
+
+function drawGridLines(sectionPlane){
+	//this is drawing the structual grid
+	var material = new THREE.LineDashedMaterial({ vertexColors: false, color: 0xFF00FF, dashSize:0.6, gapSize: 0.3, scale: 1 });
+	var lineLength = 10;
+	for(var i=0;i<gridline.length;i++){
+		if (gridline[i]){
+					scene.remove( gridline[i] );
+					// renderer.deallocateObject( graphMesh );
+				}
+	}
+	for(var i=0;i<sectionPlane.length;i++){
+		var geometry = new THREE.Geometry();
+		geometry.vertices.push(
+			new THREE.Vector3( sectionPlane[i].origin.x, sectionPlane[i].origin.y,0),
+			new THREE.Vector3( sectionPlane[i].origin.x +sectionPlane[i].xDir.x*lineLength, sectionPlane[i].origin.y+sectionPlane[i].xDir.y*lineLength,0 )
+		);
+		geometry.computeLineDistances();
+    	if(i%2==0)//rakers blue
+    		{material = new THREE.LineDashedMaterial({ vertexColors: false, color: 0x0000FF, dashSize:0.6, gapSize: 0.3, scale: 1 });}
+    	else
+    		{material = new THREE.LineDashedMaterial({ vertexColors: false, color: 0xFF00FF, dashSize:0.6, gapSize: 0.3, scale: 1 });}
+		gridline[i] = new THREE.Line( geometry, material );
+		textLevels[i]=textObject(i,0.5,sectionPlane[i].origin.x +sectionPlane[i].xDir.x*lineLength, sectionPlane[i].origin.y+sectionPlane[i].xDir.y*lineLength,0 ,0);
+		gridline[i].add(textLevels[i]);
+		gridline[i].rotation.x=Math.PI/2;
+		scene.add( gridline[i] );
+	}
+}
+function removefromscene(stufftoremove)
+{
+	for(var i=0;i<stufftoremove.length;i++){
+		if (stufftoremove[i]){
+					scene.remove( stufftoremove[i] );
+					// renderer.deallocateObject( graphMesh );
+				}
+	}
+}
+function textObject(text,textsize,x,y,z,mapAngle)
+{
+	var materialFront = new THREE.MeshBasicMaterial( { color: 0xff0000 } );
+	var materialSide = new THREE.MeshBasicMaterial( { color: 0x000088 } );
+	var materialArray = [ materialFront, materialSide ];
+	var textMaterial = new THREE.MeshFaceMaterial(materialArray);
+	var textGeom = new THREE.TextGeometry( text, 
+	{
+		size: textsize, height: 0.0, curveSegments: 3,
+		font: "helvetiker", weight: "bold", style: "normal",
+		bevelThickness: 1, bevelSize: 2, bevelEnabled:false,
+		material: 0, extrudeMaterial: 1
+	});
+	var textMesh = new THREE.Mesh(textGeom, textMaterial );
+	var textOb=new THREE.Mesh(textGeom, textMaterial );
+	textOb.rotation.x = Math.PI / 2;
+	textOb.rotation.y = mapAngle;
+	textOb.position.set( x,y,z);
+	return textOb;
+}
+
+function drawBaseSection(baseSection,numTiers,type, showSightlines)
+{
+	//remove all lines before addiing new ones
+	removefromscene(basesectionline);
+	removefromscene(spectatoreyes);
+	removefromscene(sightline);
+	var angle=Math.PI;
+	if(type === 'inbowlPos')
+	{angle =-Math.PI/2; }
+	var eyecount=0;
+	for(var i=0;i<numTiers;i++)//only draw the tiers defined by gui
+	{
+		var segments = baseSection[i].totalPoints;
+		var geometry = new THREE.BufferGeometry();
+		var positions = new Float32Array( segments * 3 );
+		var material = new THREE.LineBasicMaterial({color: 0x0000ff});
+		var pcount=0;
+		for (var j =0;j< segments; j++) 
+		{
+			positions[pcount]=	baseSection[i].surfPoints[j].x;
+			pcount++;
+			positions[pcount]=	baseSection[i].surfPoints[j].y;
+			pcount++;
+			positions[pcount]=	baseSection[i].surfPoints[j].z;
+			pcount++;
+		};		
+		geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+		
+		basesectionline[i] = new THREE.Line( geometry, material );
+		
+		// add 3D text to show level
+	
+	textLevels[i]=textObject(positions[pcount-1].toFixed(2),0.5,positions[pcount-3], positions[pcount-2], positions[pcount-1],baseSection[i].mappingAngle);
+	
+	basesectionline[i].add(textLevels[i]);
+	basesectionline[i].rotation.x=angle;
+	scene.add( basesectionline[i] );
+	
+		//and eye points + sightlines
+		
+			for(var j=0;j<baseSection[i].eyePoints.length;j++)
+			{	
+				// scene.add( spectatoreyes[eyecount]);
+				var material = new THREE.LineBasicMaterial( { color : 0xB2B2B2,linewidth: 0.2 } );
+				var geometry = new THREE.Geometry();
+				geometry.vertices.push(
+				baseSection[i].focalPoint,
+				new THREE.Vector3( baseSection[i].eyePoints[j].x,  baseSection[i].eyePoints[j].y,baseSection[i].eyePoints[j].z )
+				);
+				if(i==numTiers-1&&j==baseSection[i].eyePoints.length-1)
+				{geometry.computeBoundingSphere();
+				sightline[eyecount] = new THREE.Line( geometry, material );
+				sightline[eyecount].rotation.x=angle;
+				lastSightLine  = sightline[eyecount];
+				}
+				else{
+					sightline[eyecount] = new THREE.Line( geometry, material );
+				sightline[eyecount].rotation.x=angle;
+				}
+				if(showSightlines)
+				{
+				scene.add( sightline[eyecount] );
+			}
+				eyecount++;//tracks number of eyes and sightlines added to scene
+			}
+		
+	}
+
+	
+}
+function animate() 
+{
+    requestAnimationFrame( animate );
+
+	render();		
+	stats.update();
+	update();
+	//updatePStore();
+}
+
+function update()
+{
+	
+	controls.update();
+	
+}
+
+function render() 
+{
+	
+	renderer.render( scene, camera );
+}
+
+		</script>
+	</body>
+</html>
